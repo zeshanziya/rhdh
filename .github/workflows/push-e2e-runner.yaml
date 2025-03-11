@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - '.ibm/images/Dockerfile'
+      - '.yarnrc.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -51,7 +52,10 @@ jobs:
       - name: Build and Push Image
         uses: docker/build-push-action@v5
         with:
-          context: .ibm/images/
+          context: .
+          file: .ibm/images/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}:${{ env.IMAGE_TAG }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}:${{ env.IMAGE_TAG }}-${{ env.SHORT_SHA }}
           platforms: ${{ env.PLATFORM }}
