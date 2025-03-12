@@ -16,11 +16,20 @@ ENV CI=1 \
     GOPATH="/go" \
     PATH="$GOPATH/bin:/usr/local/go/bin:$PATH"
 
-# Copy the .yarnrc.yml file to the environment
+# Copy Yarn configuration files to correctly use the project-defined Yarn version
+COPY .yarn /root/.yarn
 COPY .yarnrc.yml /root/.yarnrc.yml
+RUN rm -f $(which yarn) || true
 
 # Extract the correct version from the file and install
-RUN YARN_VERSION=$(awk '/yarnPath:/ {print $2}' /root/.yarnrc.yml | awk -F'[-.]' '{print $(NF-1)"."$NF}') && rm -f /root/.yarnrc.yml
+RUN YARN_VERSION=$(awk -F'[-.]' '/yarnPath:/ {print $(NF-3)"."$(NF-2)"."$(NF-1)}' /root/.yarnrc.yml) \
+  && echo "Detected Yarn Version: $YARN_VERSION" \
+  && corepack enable \
+  && corepack prepare "yarn@$YARN_VERSION" --activate \
+  && yarn -v \
+  && rm -f /root/.yarnrc.yml \
+  && echo "export PATH=\"\$HOME/.yarn/bin:\$HOME/.config/yarn/global/node_modules/.bin:\$PATH\"" >> /root/.bashrc \
+  && echo 'echo "Yarn version: $(yarn -v)"' >> /root/.bashrc
 
 # Install essential dependencies and Node.js tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,7 +39,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apache2-utils \
     gettext \
     curl wget jq colorized-logs && \
-    npm install -g typescript yarn@$YARN_VERSION && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
     echo "Node: $(node -v)\nNPM: $(npm -v)\nYarn: $(yarn -v)\nTypeScript: $(tsc -v)"
 
