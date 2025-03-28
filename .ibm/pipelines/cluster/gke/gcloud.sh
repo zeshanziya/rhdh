@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# shellcheck source=.ibm/pipelines/utils.sh
+source "$DIR"/utils.sh
+
 gcloud_auth() {
   local service_account_name=$1
   local service_account_key_location=$2
@@ -19,7 +22,7 @@ gcloud_ssl_cert_create() {
   local project=$3
 
   # Capture both stdout and stderr
-  set +xe
+  set +e
   local output
   output=$(gcloud compute ssl-certificates create "${cert_name}" --domains="${domain}" --project="${project}" --global 2>&1)
   set -e
@@ -37,4 +40,9 @@ gcloud_ssl_cert_create() {
       exit 1
     fi
   fi
+}
+
+cleanup_gke() {
+  delete_tekton_pipelines
+  uninstall_olm
 }
