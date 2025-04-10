@@ -179,7 +179,11 @@ RUN \
 
 RUN echo "=== YARN BUILD ==="; "$YARN" build --filter=backend
 
-RUN echo "=== EXPORT DYNAMIC PLUGINS ==="; "$YARN" export-dynamic --filter=./dynamic-plugins/wrappers/*
+RUN echo "=== EXPORT DYNAMIC PLUGINS ==="; FAILED=0; "$YARN" export-dynamic --filter=./dynamic-plugins/wrappers/* || true; \
+for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then \
+  (( FAILED = FAILED + 1 )); echo; echo $d; echo "======"; cat ${d}/build.log; \
+fi; done; \
+if [[ $FAILED -gt 0 ]]; then exit $FAILED; fi
 
 RUN echo "=== YARN COPY DYNAMIC PLUGINS in $(pwd) ==="; "$YARN" copy-dynamic-plugins dist
 
@@ -218,7 +222,7 @@ RUN "$YARN" config set httpTimeout 600000
 
 # Install production dependencies
 # hadolint ignore=DL3059
-RUN FAILED=0; "$YARN" workspaces focus --all --production || true; \
+RUN echo "=== YARN WORKSPACES FOCUS ==="; FAILED=0; "$YARN" workspaces focus --all --production || true; \
   for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then \
     (( FAILED = FAILED + 1 )); echo; echo $d; echo "======"; cat ${d}/build.log; \
   fi; done; \

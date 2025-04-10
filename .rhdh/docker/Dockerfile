@@ -206,23 +206,14 @@ RUN \
   cat packages/app/src/build-metadata.json; echo
 
 RUN echo "=== YARN BUILD ==="; "$YARN" build --filter=backend
-# debug
-# >/tmp/yarn.build.log.txt 2>&1
-# || { for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then echo; echo $d; echo "======"; cat ${d}/build.log; fi; done }
 
-# >/tmp/yarn.export.dynamic.log.txt 2>&1
-RUN echo "=== EXPORT DYNAMIC PLUGINS (with --no-install) ==="; "$YARN" export-dynamic --filter=./dynamic-plugins/wrappers/*
-# debug
-#  for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then echo; echo $d; echo "======"; cat ${d}/build.log; fi; done; \
-#  for d in $(find . -name yarn-install.log); do echo; echo "===== EXPORT DYNAMIC PLUGINS: $d =====>"; cat ${d}; echo "<===== EXPORT DYNAMIC PLUGINS: $d ====="; done;
-
-# Stan says we can  omit this step - https://redhat-internal.slack.com/archives/C08A1KD7TNY/p1741805639019149?thread_ts=1741720088.366109&cid=C08A1KD7TNY
-# RUN echo "=== DIST-DYNAMIC YARN INSTALLS ==="; for f in $(find ./dynamic-plugins/wrappers/ -maxdepth 2 -type d -name dist-dynamic); do g=${f#*/wrappers/}; echo " > $g"; g=${g//\//_}; \
-#   pushd $f >/dev/null; "$YARN" install --immutable >"/tmp/yarn.install.${g}.log.txt" 2>&1; popd >/dev/null; done
+RUN echo "=== EXPORT DYNAMIC PLUGINS (with --no-install) ==="; FAILED=0; "$YARN" export-dynamic --filter=./dynamic-plugins/wrappers/* || true; \
+for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then \
+  (( FAILED = FAILED + 1 )); echo; echo $d; echo "======"; cat ${d}/build.log; \
+fi; done; \
+if [[ $FAILED -gt 0 ]]; then exit $FAILED; fi
 
 RUN echo "=== YARN COPY DYNAMIC PLUGINS in $(pwd) ==="; "$YARN" copy-dynamic-plugins dist
-#  >/tmp/yarn.copy.dynamic.log.txt 2>&1
-# RUN ls -la dynamic-plugins/*
 
 # Downstream only - clean up dynamic plugins sources:
 # Only keep the dist sub-folder in the dynamic-plugins folder
@@ -263,7 +254,7 @@ RUN "$YARN" config set httpTimeout 600000
 
 # Install production dependencies
 # hadolint ignore=DL3059
-RUN FAILED=0; "$YARN" workspaces focus --all --production || true; \
+RUN echo "=== YARN WORKSPACES FOCUS ==="; FAILED=0; "$YARN" workspaces focus --all --production || true; \
   for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then \
     (( FAILED = FAILED + 1 )); echo; echo $d; echo "======"; cat ${d}/build.log; \
   fi; done; \
