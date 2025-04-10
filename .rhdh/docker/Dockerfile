@@ -47,7 +47,7 @@ RUN dnf install -q -y --allowerasing --nobest \
   python3-subscription-manager-rhsm python3-systemd python3-urllib3 readline redhat-release rootfiles rpm rpm-build-libs rpm-libs rpm-plugin-selinux rpm-sign-libs rsync scl-utils \
   sed selinux-policy selinux-policy-targeted setup shadow-utils skopeo slirp4netns sqlite-libs subscription-manager subscription-manager-rhsm-certificates systemd systemd-libs \
   systemd-pam systemd-rpm-macros tar tcl tpm2-tss tzdata unzip usermode util-linux util-linux-core vim-filesystem vim-minimal virt-what which xz xz-libs yajl yum zlib zlib-devel && \
-  
+
   # '(micro)dnf update -y' not allowed in Konflux+Cachi2: instead use renovate or https://github.com/konflux-ci/rpm-lockfile-prototype to update the rpms.lock.yaml file
   dnf clean all
 
@@ -157,11 +157,18 @@ COPY $EXTERNAL_SOURCE_NESTED/dynamic-plugins/wrappers/backstage-community-plugin
 COPY $EXTERNAL_SOURCE_NESTED/dynamic-plugins/wrappers/backstage-community-plugin-3scale-backend-dynamic/package.json ./dynamic-plugins/wrappers/backstage-community-plugin-3scale-backend-dynamic/package.json
 # END COPY package.json files
 
-# unpack headers from tarball to save time (both upstream and downstream)
-COPY $EXTERNAL_SOURCE_NESTED/.nvmrc $EXTERNAL_SOURCE_NESTED/.nvm/releases/* .
-RUN NODE_HEADERS_VERSION=$(cat .nvmrc); mkdir -p ~/.cache/node-gyp/${NODE_HEADERS_VERSION}; \
-  tar -xf node-v${NODE_HEADERS_VERSION}-headers.tar.gz --directory ~/.cache/node-gyp/${NODE_HEADERS_VERSION}/ --strip-components 1; \
-  echo "11" > ~/.cache/node-gyp/${NODE_HEADERS_VERSION}/installVersion; rm -fr .nvmrc node-v${NODE_HEADERS_VERSION}-headers.tar.gz
+# unpack headers from tarball (includes openssl headers not present in /usr/include/node) - see RHIDP-6755 for why we need this upstream
+COPY $EXTERNAL_SOURCE_NESTED/.nvm/ .
+RUN NODE_HEADERS_VERSION=$(node --version); echo "=== Install node headers $NODE_HEADERS_VERSION from tar.gz ==="; \
+  if [[ ! -f releases/node-${NODE_HEADERS_VERSION}-headers.tar.gz ]]; then \
+    echo "[ERROR] Base image includes nodejs $NODE_HEADERS_VERSION but could not find releases/node-${NODE_HEADERS_VERSION}-headers.tar.gz to install!"; \
+    echo "[ERROR] To fix, upload the node-${NODE_HEADERS_VERSION}-headers.tar.gz file into https://github.com/redhat-developer/rhdh/tree/main/.nvm/releases (or related branch)!"; \
+    exit 1; \
+  fi; \
+  mkdir -p ~/.cache/node-gyp/${NODE_HEADERS_VERSION/v/}; \
+  tar -xf releases/node-${NODE_HEADERS_VERSION}-headers.tar.gz --directory ~/.cache/node-gyp/${NODE_HEADERS_VERSION/v/}/ --strip-components 1; \
+  echo "11" > ~/.cache/node-gyp/${NODE_HEADERS_VERSION/v/}/installVersion; \
+  rm -fr releases/node-${NODE_HEADERS_VERSION}-headers.tar.gz
 
 # Increate timeout for yarn install
 RUN "$YARN" config set httpTimeout 600000
@@ -173,10 +180,11 @@ RUN "$YARN" config set httpTimeout 600000
 #   export YARN_GLOBAL_FOLDER=/cachi2/output/deps/yarn
 # RUN cat /cachi2/cachi2.env; echo; ls -la /cachi2/output/deps/yarn/*
 
-RUN echo "=== YARN INSTALL ==="; "$YARN" install --immutable
-# debug
-#  | tee /tmp/yarn.install.log.txt 2>&1; \
-#   for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then echo; echo $d; echo "======"; cat ${d}/build.log; fi; done
+RUN echo "=== YARN INSTALL ==="; FAILED=0; "$YARN" install --immutable || true; \
+  for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then \
+    (( FAILED = FAILED + 1 )); echo; echo $d; echo "======"; cat ${d}/build.log; \
+  fi; done; \
+  if [[ $FAILED -gt 0 ]]; then exit $FAILED; fi
 
 # Stage 3 - Build packages
 FROM deps AS build
@@ -197,16 +205,16 @@ RUN \
   -e "s/(\"Last Commit\": \"(.+)\")/\1, \"Build Time\": \"$now\"/" && \
   cat packages/app/src/build-metadata.json; echo
 
-RUN echo "=== YARN BUILD ==="; "$YARN" build --filter=backend 
+RUN echo "=== YARN BUILD ==="; "$YARN" build --filter=backend
 # debug
 # >/tmp/yarn.build.log.txt 2>&1
-# || { for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then echo; echo $d; echo "======"; cat ${d}/build.log; fi; done } 
+# || { for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then echo; echo $d; echo "======"; cat ${d}/build.log; fi; done }
 
 # >/tmp/yarn.export.dynamic.log.txt 2>&1
 RUN echo "=== EXPORT DYNAMIC PLUGINS (with --no-install) ==="; "$YARN" export-dynamic --filter=./dynamic-plugins/wrappers/*
 # debug
 #  for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then echo; echo $d; echo "======"; cat ${d}/build.log; fi; done; \
-#  for d in $(find . -name yarn-install.log); do echo; echo "===== EXPORT DYNAMIC PLUGINS: $d =====>"; cat ${d}; echo "<===== EXPORT DYNAMIC PLUGINS: $d ====="; done; 
+#  for d in $(find . -name yarn-install.log); do echo; echo "===== EXPORT DYNAMIC PLUGINS: $d =====>"; cat ${d}; echo "<===== EXPORT DYNAMIC PLUGINS: $d ====="; done;
 
 # Stan says we can  omit this step - https://redhat-internal.slack.com/archives/C08A1KD7TNY/p1741805639019149?thread_ts=1741720088.366109&cid=C08A1KD7TNY
 # RUN echo "=== DIST-DYNAMIC YARN INSTALLS ==="; for f in $(find ./dynamic-plugins/wrappers/ -maxdepth 2 -type d -name dist-dynamic); do g=${f#*/wrappers/}; echo " > $g"; g=${g//\//_}; \
@@ -255,7 +263,7 @@ RUN "$YARN" config set httpTimeout 600000
 
 # Install production dependencies
 # hadolint ignore=DL3059
-RUN FAILED=0; "$YARN" workspaces focus --all --production || true; \ 
+RUN FAILED=0; "$YARN" workspaces focus --all --production || true; \
   for d in /tmp/xfs-*; do if [[ -f ${d}/build.log ]]; then \
     (( FAILED = FAILED + 1 )); echo; echo $d; echo "======"; cat ${d}/build.log; \
   fi; done; \
@@ -334,11 +342,11 @@ RUN chmod -R a+r ./dynamic-plugins/ ./install-dynamic-plugins.py; \
 RUN ln -s /opt/app-root/src/packages/app/dist/index.html /opt/app-root/src/packages/app/dist/index.html.tmpl
 
 # Fix for https://issues.redhat.com/browse/RHIDP-728
-RUN mkdir /opt/app-root/src/.npm; chown -R 1001:1001 /opt/app-root/src/.npm; 
+RUN mkdir /opt/app-root/src/.npm; chown -R 1001:1001 /opt/app-root/src/.npm;
 
 # The fix-permissions script is important when operating in environments that dynamically use a random UID at runtime, such as OpenShift.
 # The upstream backstage image does not account for this and it causes the container to fail at runtime.
-# suppress warnings about dereferencing symlinks 
+# suppress warnings about dereferencing symlinks
 RUN fix-permissions ./ 2>&1 | grep -v "chgrp: cannot dereference" || true
 
 # Switch to nodejs user
