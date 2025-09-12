@@ -36,7 +36,7 @@ jobs:
     # The job is run on the main branch to ensure that the action is not tampered with.
     runs-on: ubuntu-latest
     outputs:
-      is_active_member: ${{ steps.team-check.outputs.is_active_member }}
+      is_active_team_member: ${{ steps.team-check.outputs.is_active_member }}
     steps:   
       - name: Generate GitHub App Token
         id: app-token
@@ -45,7 +45,7 @@ jobs:
           app-id: ${{ secrets.RHDH_GITHUB_APP_ID }}
           private-key: ${{ secrets.RHDH_GITHUB_APP_PRIVATE_KEY }}
       - name: Checkout main branch for secure version of check-author action
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
           fetch-depth: 1
           ref: main  # Always use main branch for security-critical action
@@ -65,14 +65,14 @@ jobs:
     # Use 'internal' environment if the author is in the team OR if it's an internal PR (not from a fork)
     # see list of approvers in OWNERS file
     environment:
-      ${{ (needs.check-commit-author.outputs.is_team_member == 'true' || github.event.pull_request.head.repo.full_name == github.repository) && 'internal' || 'external' }}
+      ${{ (needs.check-commit-author.outputs.is_active_team_member == 'true' || github.event.pull_request.head.repo.full_name == github.repository) && 'internal' || 'external' }}
     runs-on: ubuntu-latest
     needs: check-commit-author
     steps:
       - name: Check if internal PR
         id: check
         run: |
-          if [[ "${{ needs.check-commit-author.outputs.is_team_member }}" == "true" ]]; then
+          if [[ "${{ needs.check-commit-author.outputs.is_active_team_member }}" == "true" ]]; then
             echo "✓ Commit author is in rhdh team - using internal environment"
           elif [[ "${{ github.event.pull_request.head.repo.full_name }}" == "${{ github.repository }}" ]]; then
             echo "✓ Internal PR (not from fork) - using internal environment"
@@ -88,7 +88,7 @@ jobs:
     needs: authorize
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -131,7 +131,7 @@ jobs:
     needs: authorize
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
