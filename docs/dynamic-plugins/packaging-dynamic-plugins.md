@@ -43,7 +43,7 @@ The `--tag` argument is required when using this packaging method. It specifies 
 > Example using Docker:
 >
 > ```bash
-> npx @janus-idp/cli@latest package package-dynamic-plugins --container-tool docker --tag quay.io/example/image:v0.0.1
+> npx @red-hat-developer-hub/cli@latest plugin package --container-tool docker --tag quay.io/example/image:v0.0.1
 > ```
 
 ## Creating a `tgz` Archive
