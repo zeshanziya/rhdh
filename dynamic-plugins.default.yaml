@@ -1260,6 +1260,10 @@ plugins:
       dynamicPlugins:
         frontend:
           red-hat-developer-hub.backstage-plugin-marketplace:
+            translationResources:
+              - importName: marketplaceTranslations
+                module: Alpha
+                ref: marketplaceTranslationRef
             appIcons:
               - name: marketplace
                 importName: MarketplaceIcon
