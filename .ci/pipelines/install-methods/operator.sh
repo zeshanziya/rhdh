@@ -53,7 +53,7 @@ deploy_rhdh_operator() {
   local backstage_crd_path=$2
 
   # Ensure PostgresCluster CRD is available before deploying Backstage CR
-  # This is critical because the operator will try to create a PostgresCluster resource
+  # This is required because the operator relies on CrunchyDB for its internal database
   log::info "Verifying PostgresCluster CRD is available before deploying Backstage CR..."
   k8s_wait::crd "postgresclusters.postgres-operator.crunchydata.com" 60 5 || {
     log::error "PostgresCluster CRD not available - operator won't be able to create internal database"
