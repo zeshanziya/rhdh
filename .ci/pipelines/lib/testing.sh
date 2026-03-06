@@ -48,7 +48,7 @@ testing::run_tests() {
   fi
 
   CURRENT_DEPLOYMENT=$((CURRENT_DEPLOYMENT + 1))
-  save_status_deployment_namespace $CURRENT_DEPLOYMENT "$namespace"
+  save_status_deployment_namespace $CURRENT_DEPLOYMENT "$artifacts_subdir"
   save_status_failed_to_deploy $CURRENT_DEPLOYMENT false
 
   BASE_URL="${url}"
@@ -88,16 +88,16 @@ testing::run_tests() {
   # Use artifacts_subdir for artifact directory to keep artifacts organized
   mkdir -p "${ARTIFACT_DIR}/${artifacts_subdir}/test-results"
   mkdir -p "${ARTIFACT_DIR}/${artifacts_subdir}/attachments/screenshots"
-  cp -a "${e2e_tests_dir}/test-results/"* "${ARTIFACT_DIR}/${artifacts_subdir}/test-results" || true
-  cp -a "${e2e_tests_dir}/${JUNIT_RESULTS}" "${ARTIFACT_DIR}/${artifacts_subdir}/${JUNIT_RESULTS}" || true
+  rsync -a "${e2e_tests_dir}/test-results/" "${ARTIFACT_DIR}/${artifacts_subdir}/test-results/" || true
+  rsync -a "${e2e_tests_dir}/${JUNIT_RESULTS}" "${ARTIFACT_DIR}/${artifacts_subdir}/${JUNIT_RESULTS}" || true
   if [[ "${CI}" == "true" ]]; then
-    cp "${ARTIFACT_DIR}/${artifacts_subdir}/${JUNIT_RESULTS}" "${SHARED_DIR}/junit-results-${artifacts_subdir}.xml" || true
+    rsync "${ARTIFACT_DIR}/${artifacts_subdir}/${JUNIT_RESULTS}" "${SHARED_DIR}/junit-results-${artifacts_subdir}.xml" || true
   fi
 
-  cp -a "${e2e_tests_dir}/screenshots/"* "${ARTIFACT_DIR}/${artifacts_subdir}/attachments/screenshots/" || true
+  rsync -a "${e2e_tests_dir}/screenshots/" "${ARTIFACT_DIR}/${artifacts_subdir}/attachments/screenshots/" || true
   ansi2html < "/tmp/${LOGFILE}" > "/tmp/${LOGFILE}.html"
-  cp -a "/tmp/${LOGFILE}.html" "${ARTIFACT_DIR}/${artifacts_subdir}" || true
-  cp -a "${e2e_tests_dir}/playwright-report/"* "${ARTIFACT_DIR}/${artifacts_subdir}" || true
+  rsync -a "/tmp/${LOGFILE}.html" "${ARTIFACT_DIR}/${artifacts_subdir}/" || true
+  rsync -a "${e2e_tests_dir}/playwright-report/" "${ARTIFACT_DIR}/${artifacts_subdir}/" || true
 
   echo "Playwright project '${playwright_project}' in namespace '${namespace}' (artifacts: ${artifacts_subdir}) RESULT: ${test_result}"
   if [[ "${test_result}" -ne 0 ]]; then
@@ -106,16 +106,19 @@ testing::run_tests() {
   else
     save_status_test_failed $CURRENT_DEPLOYMENT false
   fi
-  if [[ -f "${e2e_tests_dir}/${JUNIT_RESULTS}" ]]; then
+  # Use Playwright exit code as source of truth: flaky tests (failed initially
+  # but passed on retry) report failures in JUnit XML even though they passed.
+  # When test_result is 0, all tests ultimately passed — report 0 failures.
+  if [[ "${test_result}" -eq 0 ]]; then
+    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "0"
+  elif [[ -f "${e2e_tests_dir}/${JUNIT_RESULTS}" ]]; then
     local failed_tests
     failed_tests=$(grep -oP 'failures="\K[0-9]+' "${e2e_tests_dir}/${JUNIT_RESULTS}" | head -n 1)
     echo "Number of failed tests: ${failed_tests}"
-    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "${failed_tests}"
+    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "${failed_tests:-some}"
   else
     echo "JUnit results file not found: ${e2e_tests_dir}/${JUNIT_RESULTS}"
-    local failed_tests="some"
-    echo "Number of failed tests unknown, saving as $failed_tests."
-    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "${failed_tests}"
+    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "some"
   fi
   return 0
 }
@@ -186,7 +189,7 @@ testing::check_backstage_running() {
         log::error "Recent events:"
         oc get events -n "${namespace}" --sort-by='.lastTimestamp' | tail -20
         mkdir -p "${ARTIFACT_DIR}/${namespace}"
-        cp -a "/tmp/${LOGFILE}" "${ARTIFACT_DIR}/${namespace}/" || true
+        rsync -a "/tmp/${LOGFILE}" "${ARTIFACT_DIR}/${namespace}/" || true
         return 1
       fi
 
@@ -197,7 +200,7 @@ testing::check_backstage_running() {
   log::error "Failed to reach Backstage at ${url} after ${max_attempts} attempts."
   oc get events -n "${namespace}" --sort-by='.lastTimestamp' | tail -10
   mkdir -p "${ARTIFACT_DIR}/${namespace}"
-  cp -a "/tmp/${LOGFILE}" "${ARTIFACT_DIR}/${namespace}/" || true
+  rsync -a "/tmp/${LOGFILE}" "${ARTIFACT_DIR}/${namespace}/" || true
   return 1
 }
 
@@ -241,9 +244,10 @@ testing::check_and_test() {
   else
     echo "Backstage is not running. Marking deployment as failed and continuing..."
     CURRENT_DEPLOYMENT=$((CURRENT_DEPLOYMENT + 1))
-    save_status_deployment_namespace $CURRENT_DEPLOYMENT "$namespace"
+    save_status_deployment_namespace $CURRENT_DEPLOYMENT "$artifacts_subdir"
     save_status_failed_to_deploy $CURRENT_DEPLOYMENT true
     save_status_test_failed $CURRENT_DEPLOYMENT true
+    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "0"
     save_overall_result 1
   fi
 
@@ -321,6 +325,7 @@ testing::check_upgrade_and_test() {
     save_status_deployment_namespace $CURRENT_DEPLOYMENT "$namespace"
     save_status_failed_to_deploy $CURRENT_DEPLOYMENT true
     save_status_test_failed $CURRENT_DEPLOYMENT true
+    save_status_number_of_test_failed $CURRENT_DEPLOYMENT "0"
     save_overall_result 1
   fi
   return 0
